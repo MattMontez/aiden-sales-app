@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -12,6 +12,7 @@ import {
   LogOut,
   Zap,
 } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 const nav = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -24,6 +25,13 @@ const nav = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/login");
+  };
 
   return (
     <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen shrink-0">
