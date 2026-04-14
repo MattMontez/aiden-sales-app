@@ -16,6 +16,8 @@ import {
   ArrowRight,
   Send,
   FileText,
+  Upload,
+  Download,
 } from "lucide-react";
 
 interface Lead {
@@ -97,6 +99,7 @@ export default function LeadsPage() {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [newNote, setNewNote] = useState("");
+  const [importCount, setImportCount] = useState(0);
 
   const fetchLeads = useCallback(async () => {
     if (!user) return;
@@ -179,6 +182,89 @@ export default function LeadsPage() {
     });
   };
 
+  // CSV Export
+  const exportCSV = () => {
+    const headers = ["Name", "Email", "Phone", "Company", "Title", "Status", "Source", "Value", "Score"];
+    const rows = leads.map((l) => [
+      l.name, l.email || "", l.phone || "", l.company || "", l.title || "",
+      l.status, l.source || "", l.value?.toString() || "0", l.score?.toString() || "0",
+    ]);
+    const csv = [headers.join(","), ...rows.map((r) => r.map((c) => `"${(c || "").replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aiden-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // CSV Import
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    const text = await file.text();
+    const lines = text.split("\n").filter((l) => l.trim());
+    if (lines.length < 2) return;
+
+    // Parse header row
+    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
+    const nameIdx = headers.findIndex((h) => h.includes("name"));
+    const emailIdx = headers.findIndex((h) => h.includes("email"));
+    const phoneIdx = headers.findIndex((h) => h.includes("phone"));
+    const companyIdx = headers.findIndex((h) => h.includes("company"));
+    const titleIdx = headers.findIndex((h) => h.includes("title"));
+    const sourceIdx = headers.findIndex((h) => h.includes("source"));
+    const valueIdx = headers.findIndex((h) => h.includes("value"));
+    const scoreIdx = headers.findIndex((h) => h.includes("score"));
+
+    if (nameIdx === -1) {
+      alert("CSV must have a 'Name' column");
+      return;
+    }
+
+    const newLeads = [];
+    for (let i = 1; i < lines.length; i++) {
+      // Simple CSV parsing (handles quoted fields)
+      const cols: string[] = [];
+      let current = "";
+      let inQuotes = false;
+      for (const char of lines[i]) {
+        if (char === '"') { inQuotes = !inQuotes; }
+        else if (char === "," && !inQuotes) { cols.push(current.trim()); current = ""; }
+        else { current += char; }
+      }
+      cols.push(current.trim());
+
+      const name = cols[nameIdx];
+      if (!name) continue;
+
+      newLeads.push({
+        name,
+        email: emailIdx >= 0 ? cols[emailIdx] || null : null,
+        phone: phoneIdx >= 0 ? cols[phoneIdx] || null : null,
+        company: companyIdx >= 0 ? cols[companyIdx] || null : null,
+        title: titleIdx >= 0 ? cols[titleIdx] || null : null,
+        source: sourceIdx >= 0 ? cols[sourceIdx] || "CSV Import" : "CSV Import",
+        value: valueIdx >= 0 ? Number(cols[valueIdx]) || 0 : 0,
+        score: scoreIdx >= 0 ? Number(cols[scoreIdx]) || 0 : 0,
+        status: "New",
+        user_id: user.id,
+      });
+    }
+
+    if (newLeads.length > 0) {
+      await supabase.from("leads").insert(newLeads);
+      setImportCount(newLeads.length);
+      setTimeout(() => setImportCount(0), 5000);
+      fetchLeads();
+    }
+
+    // Reset the file input
+    e.target.value = "";
+  };
+
   const filtered = leads.filter(
     (l) =>
       l.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -211,7 +297,22 @@ export default function LeadsPage() {
               <Plus className="w-4 h-4" />
               Add Lead
             </button>
+            <label className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-secondary transition-colors cursor-pointer">
+              <Upload className="w-4 h-4" />
+              Import CSV
+              <input type="file" accept=".csv" onChange={handleImport} className="hidden" />
+            </label>
+            <button
+              onClick={exportCSV}
+              className="flex items-center gap-2 px-3 py-2 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </button>
             <span className="text-sm text-muted-foreground">{filtered.length} leads</span>
+            {importCount > 0 && (
+              <span className="text-sm text-success font-medium">Imported {importCount} leads!</span>
+            )}
           </div>
 
           {/* Add Lead Form */}
